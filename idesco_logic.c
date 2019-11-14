@@ -96,8 +96,6 @@ void open_door(int32_t mask){
 }
 
 int main(int argc, char** argv){
-	char* portTX = TTY;
-	
 	struct termios optionsTX;
 	int portTXfd;
 
@@ -124,15 +122,18 @@ int main(int argc, char** argv){
 		printHelp(argv);
 		exit(1);
 	}
-
-
-
-
-	portTXfd = open_port(portTX);
+	
 	// open syslog
 	openlog("modbus_reader", LOG_PID, LOG_DAEMON);
-	portsetup(portTXfd, &optionsTX);
-
+	
+	// open serial port to reader
+	portTXfd = open_port(TTY_PORT);
+	#ifndef _USE_RS232
+	portsetup(portTXfd, &optionsTX, 0);
+	#else
+	portsetup(portTXfd, &optionsTX, 1);
+	#endif //_USE_RS232
+	
 	sqlite3 *db;
 	if ( sqlite3_open(DATABESE_FILE, &db) ) {
 		syslog(LOG_CRIT, "Can't open database: %s\n", sqlite3_errmsg(db));
@@ -270,8 +271,14 @@ int main(int argc, char** argv){
 			fprintf(stderr, "Received bad packet\n");
 			tcflush(portTXfd, TCIOFLUSH);
 			close(portTXfd);
-			portTXfd = open_port(portTX);
-			portsetup(portTXfd, &optionsTX);
+			
+			portTXfd = open_port(TTY_PORT);
+			#ifndef _USE_RS232
+			portsetup(portTXfd, &optionsTX, 0);
+			#else
+			portsetup(portTXfd, &optionsTX, 1);
+			#endif //_USE_RS232
+
 			printf("Port reopepend and initialized\n");
 		}
 	}

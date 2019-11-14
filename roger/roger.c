@@ -1,13 +1,13 @@
 /*
- * System kontroli dostępu w oparciu o kartę zbliżeniową i PIN
- * z wykorzystaniem kontrolera NPE, czytnika z komunikacją szeregową
- * (RS232) i protokołem EPSO firmy Roger (np. PRT12EM)
+ * comunication with EPSO reader by Roger (eg. PRT12EM)
+ * 
+ * Copyright (c) 2013-2019 Robert Paciorek,
+ * 3-clause BSD license
  */
 
 // #define NO_USE_SYSLOG
 // #define DEBUG_OUT
 
-#include <inttypes.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -17,10 +17,16 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include "roger.h"
 #include "error_reporting.h"
+#include "md5.h"
 
 #define TTY_READ_TIMEOUT_1 2000000
 #define TTY_READ_TIMEOUT_2   40000
+
+#define SOH 0x01
+#define STX 0x02
+#define ETX 0x03
 
 int init_tty(const char *tty_device, int tty_baud_flag) {
 	struct termios term;
@@ -59,10 +65,6 @@ int init_net(const char* host, short port) {
 	connect(fd, (struct sockaddr*) &netTerm, sizeof(struct sockaddr_in));
 	return fd;
 }
-
-#define SOH 0x01
-#define STX 0x02
-#define ETX 0x03
 
 uint8_t epso_checksum(uint8_t *buf, uint8_t len) {
 	uint8_t i, sum = 0;
@@ -230,8 +232,6 @@ char readCardPin(int serial, char *buf, int bufSize, uint64_t* card, uint64_t* p
 	
 	return isNewData;
 }
-
-#include "md5.h"
 
 char readCardPin2(int serial, char* buf, int bufSize, uint64_t* cardNum, uint64_t* pinNum, char* cardStr, char* pinMd5Str) {
 	char *pinStr, isNewData;

@@ -1,8 +1,6 @@
 osdp-roger-acs
 
 
-
-
 This repository contains merged code from two ICM UW projects:
  1) OSDP implementation on Orange Pi zero
  2) Roger RFID reader based access control system

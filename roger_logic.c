@@ -1,3 +1,4 @@
+#include "roger.h"
 
 #define RED    0x4
 #define GREEN  0xa

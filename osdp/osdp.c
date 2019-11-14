@@ -193,20 +193,22 @@ void fill_packet(struct osdp_packet *packet, char address, char command, void* d
 	crclen_packet(packet);
 }
 
-bool portsetup(int portfd, struct termios *options){
+bool portsetup(int portfd, struct termios *options, bool useRS485){
 	int status;
-	struct serial_rs485 rs485;
-	// Set the serial port in 485 mode
-	rs485.flags = (SER_RS485_ENABLED | SER_RS485_RTS_AFTER_SEND);
-	rs485.flags &= ~(SER_RS485_RTS_ON_SEND);
-	rs485.delay_rts_after_send = 0; 
-	rs485.delay_rts_before_send = 0; 
-#ifndef _USE_RS232
-	status = ioctl(portfd, TIOCSRS485, &rs485);  
-	if(status) {
-		perror("Failed to set up RS485 (ioctl error)");
+	
+	if(useRS485) {
+		struct serial_rs485 rs485;
+		// Set the serial port in 485 mode
+		rs485.flags = (SER_RS485_ENABLED | SER_RS485_RTS_AFTER_SEND);
+		rs485.flags &= ~(SER_RS485_RTS_ON_SEND);
+		rs485.delay_rts_after_send = 0; 
+		rs485.delay_rts_before_send = 0; 
+		status = ioctl(portfd, TIOCSRS485, &rs485);  
+		if(status) {
+			perror("Failed to set up RS485 (ioctl error)");
+		}
 	}
-#endif //_USE_RS232
+	
 	tcgetattr(portfd, options);
 	cfsetispeed(options, B9600);
 	cfsetospeed(options, B9600);
