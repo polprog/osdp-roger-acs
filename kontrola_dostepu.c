@@ -17,9 +17,14 @@
 
 
 #define NO_USE_SYSLOG
+#include "error_reporting.h"
+
 #include <syslog.h>
 #include <errno.h>
-#include "roger.c"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include <sqlite3.h>
 
@@ -27,6 +32,7 @@
 #include <netinet/ip.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include "md5.h"
 
 #define DATABESE_FILE "kd-ocean_v4.db"
 
