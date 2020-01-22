@@ -91,8 +91,7 @@ void sendEvent(const char* door, const char* type, const char* card, const char*
 	#define DPRINT(...) printf(__VA_ARGS__)
 	#define LPRINT(...) printf(__VA_ARGS__)
 #else
-	//#define DPRINT(...) ;
-	#define DPRINT(...) printf(__VA_ARGS__)
+	#define DPRINT(...) ;
 	#include <stdarg.h>
 	void LPRINT(char* format, ...) {
 		va_list args;

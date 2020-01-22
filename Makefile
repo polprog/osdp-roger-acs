@@ -1,6 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Ilibs -Iosdp -Iroger
-LDFLAGS = -s -Wl,-warn-common -lc -lsqlite3
+LDFLAGS = -s -Wl,-warn-common -lc -lsqlite3 -lgpiod
+CFLAGS += -DOSDP_DEBUG -DDEBUG
 
 all:
 	@echo "make what?"
@@ -25,7 +26,7 @@ build/kd-roger.o: CFLAGS += -DROGER
 build/kd-roger.o: kontrola_dostepu.c roger_logic.c
 	$(CC) $(CFLAGS) -o $@ -c $<
 
-build/kd-idesco.o: CFLAGS += -DIDESCO -DTTY_PORT="\"/dev/ttyS2\"" -DOSDP_DEBUG
+build/kd-idesco.o: CFLAGS += -DIDESCO -DTTY_PORT="\"/dev/ttyS2\""
 build/kd-idesco.o: kontrola_dostepu.c idesco_logic.c
 	$(CC) $(CFLAGS) -o $@ -c $<
 
@@ -48,8 +49,9 @@ build/osdp.a: build/osdp.o build/crctable.o
 	ar r $@ $^
 	ranlib $@
 
+# -DOSDP_DEBUG
 build/%.o: osdp/%.c osdp/%.h
-	$(CC) $(CFLAGS) -o $@ -c $< -DOSDP_DEBUG
+	$(CC) $(CFLAGS) -o $@ -c $<
 
 # MD5 lib
 build/md5.o: libs/md5.c libs/md5.h

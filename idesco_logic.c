@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <gpiod.h>
 #include <termios.h>
 #include <time.h>
 #include "osdp.h"
@@ -6,6 +7,10 @@
 #ifndef READER_ADDR
 #define READER_ADDR 0x7f
 #endif
+
+#define GPIO_DEVICE "gpiochip0"
+#define SLEEP_TIME 300000 // in us
+#define OPEN_TIME 13 // in cycles
 
 #define SIGNAL_OK  1
 #define SIGNAL_ERR 2
@@ -95,7 +100,8 @@ void getUserFromCardData(struct userdata *user, char* doorname, struct osdp_resp
 }
 
 void open_door(int32_t mask){
-	DPRINT("\nOtwieram drzwi: %04X\n\n", mask);
+	int ret = gpiod_ctxless_set_value(GPIO_DEVICE, 13, 0, false, "gpioset", 0, 0);
+	DPRINT("\nOtwieram drzwi: %04X (%d)\n\n", mask, ret);
 }
 
 int main(int argc, char** argv){
@@ -146,20 +152,39 @@ int main(int argc, char** argv){
 	
 	state = WAIT_FOR_FIRST_ID;
 	code_timeout = -1;
-	
+	/* GPIO - PA:
+	  14 - wyjscie
+	  16 - zwora
+	  15 - emergency
+	  13 - zwora sterowanie (out) */
+	unsigned int gpioOffsets[] = {14, 15, 16};
+	int gpioValues[] = {0x13, 0x13, 0x13, 0x13};
 	struct userdata user;
 	char pin_buffer[USERPINLEN], *pin_buffer_ptr = pin_buffer;
 	memset(&user, 0, sizeof(user));
 	memset(&pin_buffer, 0, sizeof(pin_buffer));
+	int close_door = 0, ret;
 	while(1){
+		if(--close_door <= 0) {
+			gpiod_ctxless_set_value(GPIO_DEVICE, 13, 1, false, "gpioset", 0, 0);
+			close_door = OPEN_TIME;
+		}
 		DPRINT("timer=%d\tstate=%d\n", code_timeout, state);
+
+		ret = gpiod_ctxless_get_value_multiple(GPIO_DEVICE, gpioOffsets, gpioValues, 3, false, "gpioget");
+		DPRINT("input %d   %d %d %d %d\n", ret, gpioValues[0], gpioValues[1], gpioValues[2], gpioValues[3]);
+		if (gpioValues[0] == 1) {
+			open_door(0); // FIXME: poprawne id drzwi, logowanie zwora i emergency
+			close_door = OPEN_TIME;
+		}
+
 		fill_packet(&packet, READER_ADDR, osdp_POLL, NULL, 0);
 		send_packet(&packet, portTXfd);
 		#ifdef OSDP_DEBUG
 		packet_dump(&packet);
 		#endif
 		//sleep(1);
-		usleep(500000);
+		usleep(SLEEP_TIME);
 		if(recv_packet(&answer, portTXfd)){
 			process_packet(&answer, &res); //packet_dump(&answer);
 			DPRINT("RES code= %02xh len= %d\n", res.response, res.payloadlen);
@@ -199,6 +224,7 @@ int main(int argc, char** argv){
 					DPRINT("MODE=%d", mode);
 					if(mode == MODE_CARD || mode == MODE_CARD_OR_PIN){
 						open_door(user.door_list);
+						close_door = OPEN_TIME;
 						
 						state = WAIT_FOR_FIRST_ID;
 						reader_signal(SIGNAL_OK, portTXfd);
@@ -209,7 +235,7 @@ int main(int argc, char** argv){
 					break;
 				case osdp_KPD:
 					//received pin data
-					if(state != HAS_CARD && mode == MODE_CARD_OR_PIN){
+					if(state != HAS_CARD && mode != MODE_CARD_OR_PIN){
 						/* signal error to user, use card first */
 						reader_signal(SIGNAL_ERR, portTXfd);
 						break;
@@ -248,14 +274,15 @@ int main(int argc, char** argv){
 							}
 							DPRINT("j = %d", j);
 							if(j == 0){
-								DPRINT("\n\n\tOK\n\n");
+								DPRINT(" => pin OK\n");
 								/* otworz drzwi */
 								state = WAIT_FOR_FIRST_ID;
 								open_door(user.door_list);
+								close_door = OPEN_TIME;
 								reader_signal(SIGNAL_OK, portTXfd);
 							}else{
 								/* czerwone lampki */
-								DPRINT("\n\n\tblad\n\n");
+								DPRINT(" => invalid pin\n");
 								state = WAIT_FOR_FIRST_ID;
 								reader_signal(SIGNAL_ERR, portTXfd);
 							}

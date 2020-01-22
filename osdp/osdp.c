@@ -229,7 +229,9 @@ int portsetup(char *devname, struct termios *options, bool useRS485){
 	}
 	
 	if(useRS485) {
-		printf("set RS485 mode");
+		#ifdef OSDP_VERB
+		printf("set RS485 mode\n");
+		#endif
 		struct serial_rs485 rs485;
 		// Set the serial port in 485 mode
 		rs485.flags = (SER_RS485_ENABLED | SER_RS485_RTS_AFTER_SEND);
