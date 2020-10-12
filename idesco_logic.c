@@ -128,7 +128,7 @@ int main(int argc, char** argv){
 	
 	// open serial port to reader
 	portTXfd = open_port(TTY_PORT);
-	#ifndef _USE_RS232
+	#ifdef _USE_RS232
 	portsetup(portTXfd, &optionsTX, 0);
 	#else
 	portsetup(portTXfd, &optionsTX, 1);
@@ -152,6 +152,7 @@ int main(int argc, char** argv){
 		DPRINT("timer=%d\tstate=%d\n", code_timeout, state);
 		fill_packet(&packet, 0x55, osdp_POLL, NULL, 0);
 		send_packet(&packet, portTXfd);
+		packet_dump(&packet);
 		//sleep(1);
 		usleep(500000);
 		if(recv_packet(&answer, portTXfd)){
@@ -273,7 +274,7 @@ int main(int argc, char** argv){
 			close(portTXfd);
 			
 			portTXfd = open_port(TTY_PORT);
-			#ifndef _USE_RS232
+			#ifdef _USE_RS232
 			portsetup(portTXfd, &optionsTX, 0);
 			#else
 			portsetup(portTXfd, &optionsTX, 1);
