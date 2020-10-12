@@ -1,8 +1,11 @@
 #include <stdio.h>
 #include <termios.h>
 #include <time.h>
-#include "util.h"
 #include "osdp.h"
+
+#ifndef READER_ADDR
+#define READER_ADDR 0x7f
+#endif
 
 #define SIGNAL_OK  1
 #define SIGNAL_ERR 2
@@ -96,8 +99,13 @@ void open_door(int32_t mask){
 }
 
 int main(int argc, char** argv){
-	struct termios optionsTX;
 	int portTXfd;
+	struct termios optionsTX;
+	#ifdef _USE_RS232
+	const bool use_rs485 = 0;
+	#else
+	const bool use_rs485 = 1;
+	#endif //_USE_RS232
 
 	struct osdp_packet packet, answer;
 	struct osdp_response res;
@@ -127,12 +135,7 @@ int main(int argc, char** argv){
 	openlog("modbus_reader", LOG_PID, LOG_DAEMON);
 	
 	// open serial port to reader
-	portTXfd = open_port(TTY_PORT);
-	#ifdef _USE_RS232
-	portsetup(portTXfd, &optionsTX, 0);
-	#else
-	portsetup(portTXfd, &optionsTX, 1);
-	#endif //_USE_RS232
+	portTXfd = portsetup(TTY_PORT, &optionsTX, use_rs485);
 	
 	sqlite3 *db;
 	if ( sqlite3_open(DATABESE_FILE, &db) ) {
@@ -150,14 +153,16 @@ int main(int argc, char** argv){
 	memset(&pin_buffer, 0, sizeof(pin_buffer));
 	while(1){
 		DPRINT("timer=%d\tstate=%d\n", code_timeout, state);
-		fill_packet(&packet, 0x55, osdp_POLL, NULL, 0);
+		fill_packet(&packet, READER_ADDR, osdp_POLL, NULL, 0);
 		send_packet(&packet, portTXfd);
+		#ifdef OSDP_DEBUG
 		packet_dump(&packet);
+		#endif
 		//sleep(1);
 		usleep(500000);
 		if(recv_packet(&answer, portTXfd)){
 			process_packet(&answer, &res); //packet_dump(&answer);
-			printf("RES code= %02xh len= %d\n", res.response, res.payloadlen);
+			DPRINT("RES code= %02xh len= %d\n", res.response, res.payloadlen);
 			switch(res.response){
 				case osdp_ACK:
 					if(state == HAS_CARD){
@@ -212,7 +217,7 @@ int main(int argc, char** argv){
 					// sprawdzamy pin
 					for(int i = 0; i < res.payloadlen; i++){
 						if(pin_buffer_ptr - pin_buffer >= USERPINLEN-1) {
-							break;	
+							break;
 						}
 						if(res.payload[i] == 0x7f){ // * na pinpadzie
 							memset(&pin_buffer, 0, sizeof(pin_buffer));
@@ -230,6 +235,7 @@ int main(int argc, char** argv){
 								sprintf(pin_md5 + i*2, "%02x", (unsigned int)digest[i]);
 							}
 							pin_md5[32] = 0;
+							DPRINT("Wprowadzono pin %s\n", pin_buffer);
 							DPRINT("Wprowadzono md5 %s:%s prawidlowy\n", pin_md5, user.pin);
 							int j;
 							if(mode == MODE_CARD_AND_PIN){
@@ -273,13 +279,7 @@ int main(int argc, char** argv){
 			tcflush(portTXfd, TCIOFLUSH);
 			close(portTXfd);
 			
-			portTXfd = open_port(TTY_PORT);
-			#ifdef _USE_RS232
-			portsetup(portTXfd, &optionsTX, 0);
-			#else
-			portsetup(portTXfd, &optionsTX, 1);
-			#endif //_USE_RS232
-
+			portTXfd = portsetup(TTY_PORT, &optionsTX, use_rs485);
 			printf("Port reopepend and initialized\n");
 		}
 	}
@@ -300,31 +300,31 @@ void reader_signal(char signal, int ttyfd){
 	struct osdp_packet packet;
 	switch(signal){
 		case SIGNAL_OK:
-			ledset(&packet, 0x7f, 1, GREEN, false, 48);
+			ledset(&packet, READER_ADDR, 1, GREEN, false, 48);
 			send_packet(&packet, ttyfd);
 			usleep(50000);
 	recv_packet(&packet, ttyfd);
-			beepset(&packet, 0x7f, 1, 1, 1);
+			beepset(&packet, READER_ADDR, 1, 1, 1);
 			send_packet(&packet, ttyfd);
 			break;
 		case SIGNAL_ERR:
-			ledset(&packet, 0x7f, 1, RED, true, 24);
+			ledset(&packet, READER_ADDR, 1, RED, true, 24);
 			send_packet(&packet, ttyfd);
 			usleep(50000);
 	recv_packet(&packet, ttyfd);
-			beepset(&packet, 0x7f, 3, 1, 3);
+			beepset(&packet, READER_ADDR, 3, 1, 3);
 			send_packet(&packet, ttyfd);
 			break;
 		case SIGNAL_PIN:
-			ledset(&packet, 0x7f, 1, AMBER, true, 12);
+			ledset(&packet, READER_ADDR, 1, AMBER, true, 12);
 			send_packet(&packet, ttyfd);
 			usleep(50000);
 	recv_packet(&packet, ttyfd);
-			beepset(&packet, 0x7f, 1, 1, 2);
+			beepset(&packet, READER_ADDR, 1, 1, 2);
 			send_packet(&packet, ttyfd);
 			break;
 		case SIGNAL_PIN_QUIET:
-			ledset(&packet, 0x7f, 1, AMBER, true, 12);
+			ledset(&packet, READER_ADDR, 1, AMBER, true, 12);
 			send_packet(&packet, ttyfd);
 			break;
 		default:
@@ -332,5 +332,4 @@ void reader_signal(char signal, int ttyfd){
 	}
 	usleep(50000);
 	recv_packet(&packet, ttyfd);
-
 }

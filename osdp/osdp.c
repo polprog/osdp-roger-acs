@@ -1,7 +1,12 @@
 #include "osdp.h"
 
+#if defined(OSDP_DEBUG) && !defined(OSDP_VERB)
+#define OSDP_VERB
+#endif
 
-
+#if (defined(OSDP_DEBUG) || defined(OSDP_VERB)) && defined(OSDP_QUIET)
+#undefine OSDP_QUIET
+#endif
 
 bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 	//printf("Processing... pdata=0x%02x\n", packet->data[5]);
@@ -23,50 +28,63 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 	response->response = packet->data[5];
 	switch(packet->data[5]){
 		case osdp_ACK:
+			#ifdef OSDP_DEBUG
 			printf("Acknowledge\n");
+			#endif
 			break;
 		case osdp_NACK:
+			#ifdef OSDP_DEBUG
 			printf("Not Acknowledge\n");
+			#endif
 			break;
 		case osdp_RAW:
-			printf("Raw card data");
+			#ifdef OSDP_DEBUG
+			printf("Card data (raw):\n");
 			for(int i = 6; i < packet->len-2; i++){
 				if((i-6) % 8 == 0) printf("\n%08x: ", i-6);
 				printf("%02x ", packet->data[i]);
-				
 			}
 			printf("\n");
+			#endif
 			memcpy(response->payload, packet->data+6, packet->len-8);
 			response->payloadlen = packet->len-8;
-
 			break;
-		case osdp_KPD:
-			printf("Keypad data");
-			packet_dump(packet);
+		case osdp_KPD: {
 			uint16_t pinlen = packet->data[7];
-			printf("PIN len=%d\n", pinlen);
-				
+			
+			#ifdef OSDP_DEBUG
+			printf("Keypad data (raw)\n");
+			for(int i = 6; i < packet->len-2; i++){
+				if((i-6) % 8 == 0) printf("\n%08x: ", i-6);
+				printf("%02x ", packet->data[i]);
+			}
+			printf("\n");
+			
+			printf("Keypad data len=%d : ", pinlen);
 			for(int i = 8; i <pinlen+8; i++){
 				printf("%d ", packet->data[i] & 0x0f);
 			}
-			printf("\n------");
-			for(int i = 6; i < packet->len-2; i++){
-				if((i-6) % 8 == 0) printf("\n%08x: ", i-6);
-				printf("%02x ", packet->data[i]);
-			}
+			printf("\n");
+			#endif
+			
 			memcpy(response->payload, packet->data+8, pinlen);
 			response->payloadlen = pinlen;
-			printf("\n");
 			break;
+		}
 		case osdp_COM:
+			#ifdef OSDP_DEBUG
 			printf("COM data");
+			packet_dump(packet);
+			#endif
+			
 			memcpy(response->payload, packet->data+6, packet->len-8);
 			response->payloadlen = packet->len-8;
-			packet_dump(packet);
 			break;
 		default:
+			#ifdef OSDP_VERB
 			printf("Unknown packet\n");
 			packet_dump(packet);
+			#endif
 			return false;
 	}
 	return true;
@@ -85,27 +103,34 @@ bool recv_packet(struct osdp_packet *packet, int fd){
 	if((len = read(fd, packet->data, PACKETLEN)) > 0){
 		packet->len = len;
 		if(packet->data[0] != 0x53){
+			#ifndef OSDP_QUIET
 			fprintf(stderr, "Invalid packet:");
 			packet_dump(packet);
+			#endif
 			return false;
-		}else{
+		} else {
 			return true;
 		}
-	}else if(len==0){
+	}
+	#ifndef OSDP_QUIET
+	else if(len==0) {
 		fprintf(stderr, "read 0 bytes...\n");
-	}else{
+	} else {
 		perror("read error");
 	}
+	#endif
 	return false;
 }
+
 void packet_dump(struct osdp_packet *packet){
 	printf("Packet at %p, len=%d =0x%04x", packet, packet->len, packet->len);
 	for(int i = 0; i < packet->len; i++){
 		if(i % 8 == 0) printf("\n%08x: ", i);
-		printf("%02x ", (uint8_t) packet->data[i]);
+		printf("%02x ", packet->data[i]);
 	}
 	printf("\n");
 }
+
 void crclen_packet(struct osdp_packet *packet){
 	uint16_t crc;
 	packet->len += 2;
@@ -130,13 +155,14 @@ uint16_t fCrcBlk( uint8_t *pData, uint16_t nLength) {
 	return nCrc;
 }
 
-
 void comset(struct osdp_packet *packet, char newaddress, uint32_t baudrate){
 	char payload[5];
 	payload[0] = newaddress;
 	payload[1] = baudrate;
 	fill_packet(packet, 0x7f, osdp_COMSET, payload, 5);
+	#ifdef OSDP_VERB
 	packet_dump(packet);
+	#endif
 }
 
 void ledset(struct osdp_packet *packet, char address, char lednum, char color, bool blink, int blink_time){
@@ -193,17 +219,24 @@ void fill_packet(struct osdp_packet *packet, char address, char command, void* d
 	crclen_packet(packet);
 }
 
-bool portsetup(int portfd, struct termios *options, bool useRS485){
-	int status;
+int portsetup(char *devname, struct termios *options, bool useRS485){
+	int status, portfd;
+	
+	portfd = open(devname, O_RDWR | O_NOCTTY | O_NDELAY); //open rw, not a controlling terminal, ignore DCD
+	if(portfd < 0){
+		fprintf(stderr, "Cannot open %s: %s\n", devname, strerror(errno));
+		return portfd;
+	}
 	
 	if(useRS485) {
+		printf("set RS485 mode");
 		struct serial_rs485 rs485;
 		// Set the serial port in 485 mode
 		rs485.flags = (SER_RS485_ENABLED | SER_RS485_RTS_AFTER_SEND);
 		rs485.flags &= ~(SER_RS485_RTS_ON_SEND);
-		rs485.delay_rts_after_send = 0; 
-		rs485.delay_rts_before_send = 0; 
-		status = ioctl(portfd, TIOCSRS485, &rs485);  
+		rs485.delay_rts_after_send = 0;
+		rs485.delay_rts_before_send = 0;
+		status = ioctl(portfd, TIOCSRS485, &rs485);
 		if(status) {
 			perror("Failed to set up RS485 (ioctl error)");
 		}
@@ -225,8 +258,6 @@ bool portsetup(int portfd, struct termios *options, bool useRS485){
 	cfmakeraw(options);
 	tcsetattr(portfd, TCSANOW, options);
 	tcflush(portfd, TCIOFLUSH);
-	return true;
+	
+	return portfd;
 }
-
-
-
