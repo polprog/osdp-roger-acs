@@ -1,15 +1,17 @@
 #include "osdp.h"
 
-#if defined(OSDP_DEBUG) && !defined(OSDP_VERB)
-#define OSDP_VERB
-#endif
+/* OSDP_VERBOSE_LEVEL - level of lib verbosity:
+ *  0 don't print any info (except errors on serial port opening)
+ *  1 print only errors info (default)
+ *  2 print extra info on unusually situation
+ *  3 print debug info
+ */
 
-#if (defined(OSDP_DEBUG) || defined(OSDP_VERB)) && defined(OSDP_QUIET)
-#undefine OSDP_QUIET
+#ifndef OSDP_VERBOSE_LEVEL
+	#define OSDP_VERBOSE_LEVEL 1
 #endif
 
 bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
-	//printf("Processing... pdata=0x%02x\n", packet->data[5]);
 	//correct length
 	packet->len = (packet->data[3] << 8) | packet->data[2];
 	//check crc
@@ -17,10 +19,14 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 
 	if(crc != (uint16_t) ((packet->data[packet->len-1]<<8) | 
 			packet->data[packet->len-2])) {
+		#if OSDP_VERBOSE_LEVEL > 1
 		printf("CRC: expected=%04x, got %04x\n", crc, 
 			(packet->data[packet->len-1]<<8) | 
 			packet->data[packet->len-2]);
+		#endif
+		#if OSDP_VERBOSE_LEVEL > 0
 		fprintf(stderr, "CRC not OK\n");
+		#endif
 		return false;
 	}
 	
@@ -28,17 +34,17 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 	response->response = packet->data[5];
 	switch(packet->data[5]){
 		case osdp_ACK:
-			#ifdef OSDP_DEBUG
+			#if OSDP_VERBOSE_LEVEL > 2
 			printf("Acknowledge\n");
 			#endif
 			break;
 		case osdp_NACK:
-			#ifdef OSDP_DEBUG
+			#if OSDP_VERBOSE_LEVEL > 2
 			printf("Not Acknowledge\n");
 			#endif
 			break;
 		case osdp_RAW:
-			#ifdef OSDP_DEBUG
+			#if OSDP_VERBOSE_LEVEL > 2
 			printf("Card data (raw):\n");
 			for(int i = 6; i < packet->len-2; i++){
 				if((i-6) % 8 == 0) printf("\n%08x: ", i-6);
@@ -52,7 +58,7 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 		case osdp_KPD: {
 			uint16_t pinlen = packet->data[7];
 			
-			#ifdef OSDP_DEBUG
+			#if OSDP_VERBOSE_LEVEL > 2
 			printf("Keypad data (raw)\n");
 			for(int i = 6; i < packet->len-2; i++){
 				if((i-6) % 8 == 0) printf("\n%08x: ", i-6);
@@ -72,7 +78,7 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 			break;
 		}
 		case osdp_COM:
-			#ifdef OSDP_DEBUG
+			#if OSDP_VERBOSE_LEVEL > 2
 			printf("COM data");
 			packet_dump(packet);
 			#endif
@@ -81,8 +87,8 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 			response->payloadlen = packet->len-8;
 			break;
 		default:
-			#ifdef OSDP_VERB
-			printf("Unknown packet\n");
+			#if OSDP_VERBOSE_LEVEL > 1
+			printf("Unknown packet (0x%02x)\n", packet->data[5]);
 			packet_dump(packet);
 			#endif
 			return false;
@@ -103,8 +109,10 @@ bool recv_packet(struct osdp_packet *packet, int fd){
 	if((len = read(fd, packet->data, PACKETLEN)) > 0){
 		packet->len = len;
 		if(packet->data[0] != 0x53){
-			#ifndef OSDP_QUIET
-			fprintf(stderr, "Invalid packet:");
+			#if OSDP_VERBOSE_LEVEL > 0
+			fprintf(stderr, "Invalid packet");
+			#endif
+			#if OSDP_VERBOSE_LEVEL > 1
 			packet_dump(packet);
 			#endif
 			return false;
@@ -112,7 +120,7 @@ bool recv_packet(struct osdp_packet *packet, int fd){
 			return true;
 		}
 	}
-	#ifndef OSDP_QUIET
+	#if OSDP_VERBOSE_LEVEL > 0
 	else if(len==0) {
 		fprintf(stderr, "read 0 bytes...\n");
 	} else {
@@ -160,7 +168,7 @@ void comset(struct osdp_packet *packet, char newaddress, uint32_t baudrate){
 	payload[0] = newaddress;
 	payload[1] = baudrate;
 	fill_packet(packet, 0x7f, osdp_COMSET, payload, 5);
-	#ifdef OSDP_VERB
+	#if OSDP_VERBOSE_LEVEL > 1
 	packet_dump(packet);
 	#endif
 }
@@ -219,7 +227,8 @@ void fill_packet(struct osdp_packet *packet, char address, char command, void* d
 	crclen_packet(packet);
 }
 
-int portsetup(char *devname, struct termios *options, bool useRS485){
+int portsetup(char *devname, bool useRS485){
+	struct termios options;
 	int status, portfd;
 	
 	portfd = open(devname, O_RDWR | O_NOCTTY | O_NDELAY); //open rw, not a controlling terminal, ignore DCD
@@ -229,7 +238,7 @@ int portsetup(char *devname, struct termios *options, bool useRS485){
 	}
 	
 	if(useRS485) {
-		#ifdef OSDP_VERB
+		#if OSDP_VERBOSE_LEVEL > 1
 		printf("set RS485 mode\n");
 		#endif
 		struct serial_rs485 rs485;
@@ -244,21 +253,21 @@ int portsetup(char *devname, struct termios *options, bool useRS485){
 		}
 	}
 	
-	tcgetattr(portfd, options);
-	cfsetispeed(options, B9600);
-	cfsetospeed(options, B9600);
-
-	options->c_cflag &= ~PARENB;
-	options->c_cflag &= ~CSTOPB;
-	options->c_cflag &= ~CSIZE; /* Mask the character size bits */
-	options->c_cflag |= CS8;    /* Select 8 data bits */
-	options->c_cflag |= (CLOCAL | CREAD);
-	//options->c_cflag |= IGNBRK;
-	//options->c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG | IXOFF); //raw input
-	options->c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG ); //raw input
+	tcgetattr(portfd, &options);
+	cfsetispeed(&options, B9600);
+	cfsetospeed(&options, B9600);
+	
+	options.c_cflag &= ~PARENB;
+	options.c_cflag &= ~CSTOPB;
+	options.c_cflag &= ~CSIZE; /* Mask the character size bits */
+	options.c_cflag |= CS8;    /* Select 8 data bits */
+	options.c_cflag |= (CLOCAL | CREAD);
+	//options.c_cflag |= IGNBRK;
+	//options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG | IXOFF); //raw input
+	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG ); //raw input
 	//fcntl(portfd, F_SETFL, FNDELAY); //enable blocking
-	cfmakeraw(options);
-	tcsetattr(portfd, TCSANOW, options);
+	cfmakeraw(&options);
+	tcsetattr(portfd, TCSANOW, &options);
 	tcflush(portfd, TCIOFLUSH);
 	
 	return portfd;

@@ -49,7 +49,7 @@ struct osdp_response {
 
 void crclen_packet(struct osdp_packet *packet);
 void fill_packet(struct osdp_packet *packet, char address, char command, void* data, int datalen);
-int portsetup(char *devname, struct termios *options, bool useRS485);
+int portsetup(char *devname, bool useRS485);
 uint16_t fCrcBlk( uint8_t *pData, uint16_t nLength);
 void packet_dump(struct osdp_packet *packet);
 bool send_packet(struct osdp_packet *packet, int fd);

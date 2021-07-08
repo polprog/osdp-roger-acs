@@ -42,7 +42,6 @@ void open_door(int32_t mask);
 
 
 void getUserFromCardData(struct userdata *user, char* doorname, struct osdp_response *res, sqlite3 **db, char* state, char querytype){
-
 	if(res->payloadlen > USERPINLEN){
 		LOG_PRINT_ERROR("Payload length from reader too big!");
 		return;
@@ -61,7 +60,7 @@ void getUserFromCardData(struct userdata *user, char* doorname, struct osdp_resp
 		"users.userid = user_zone.userid AND user_zone.zoneid = zones.zoneid AND doors.doorid = zone_door.doorid AND zone_door.zoneid = zones.zoneid AND "
 		"doors.name LIKE '%s' AND "
 		"users.%s = '%s' );", doorname,
-		(querytype == QUERY_CARD) ? "card" : "pin",        
+		(querytype == QUERY_CARD) ? "card" : "pin",
 		(querytype == QUERY_CARD) ? user->card_id : user->pin
 		);
 
@@ -105,8 +104,6 @@ void open_door(int32_t mask){
 }
 
 int main(int argc, char** argv){
-	int portTXfd;
-	struct termios optionsTX;
 	#ifdef _USE_RS232
 	const bool use_rs485 = 0;
 	#else
@@ -141,7 +138,7 @@ int main(int argc, char** argv){
 	openlog("modbus_reader", LOG_PID, LOG_DAEMON);
 	
 	// open serial port to reader
-	portTXfd = portsetup(TTY_PORT, &optionsTX, use_rs485);
+	int osdpSerial = portsetup(TTY_PORT, use_rs485);
 	
 	sqlite3 *db;
 	if ( sqlite3_open(DATABESE_FILE, &db) ) {
@@ -179,19 +176,19 @@ int main(int argc, char** argv){
 		}
 
 		fill_packet(&packet, READER_ADDR, osdp_POLL, NULL, 0);
-		send_packet(&packet, portTXfd);
+		send_packet(&packet, osdpSerial);
 		#ifdef OSDP_DEBUG
 		packet_dump(&packet);
 		#endif
 		//sleep(1);
 		usleep(SLEEP_TIME);
-		if(recv_packet(&answer, portTXfd)){
+		if(recv_packet(&answer, osdpSerial)){
 			process_packet(&answer, &res); //packet_dump(&answer);
 			DPRINT("RES code= %02xh len= %d\n", res.response, res.payloadlen);
 			switch(res.response){
 				case osdp_ACK:
 					if(state == HAS_CARD){
-						reader_signal(SIGNAL_PIN_QUIET, portTXfd);
+						reader_signal(SIGNAL_PIN_QUIET, osdpSerial);
 						if(code_timeout > 0){
 							code_timeout--;
 							DPRINT("code_timeout--\n");
@@ -215,7 +212,7 @@ int main(int argc, char** argv){
 					getUserFromCardData(&user, argv[1], &res, &db, &state, QUERY_CARD);
 					DPRINT("Got user by card: %s\t%s\n", user.name, user.card_id);
 					if(strcmp(user.name, "") == 0){
-						reader_signal(SIGNAL_ERR, portTXfd);
+						reader_signal(SIGNAL_ERR, osdpSerial);
 						DPRINT("No user for this card\n");
 						state = WAIT_FOR_FIRST_ID;
 						code_timeout = -1;
@@ -227,9 +224,9 @@ int main(int argc, char** argv){
 						close_door = OPEN_TIME;
 						
 						state = WAIT_FOR_FIRST_ID;
-						reader_signal(SIGNAL_OK, portTXfd);
+						reader_signal(SIGNAL_OK, osdpSerial);
 					}else{
-						reader_signal(SIGNAL_PIN, portTXfd);
+						reader_signal(SIGNAL_PIN, osdpSerial);
 						state = HAS_CARD; code_timeout = code_timeout_max;
 					}
 					break;
@@ -237,7 +234,7 @@ int main(int argc, char** argv){
 					//received pin data
 					if(state != HAS_CARD && mode != MODE_CARD_OR_PIN){
 						/* signal error to user, use card first */
-						reader_signal(SIGNAL_ERR, portTXfd);
+						reader_signal(SIGNAL_ERR, osdpSerial);
 						break;
 					}
 					// sprawdzamy pin
@@ -279,12 +276,12 @@ int main(int argc, char** argv){
 								state = WAIT_FOR_FIRST_ID;
 								open_door(user.door_list);
 								close_door = OPEN_TIME;
-								reader_signal(SIGNAL_OK, portTXfd);
+								reader_signal(SIGNAL_OK, osdpSerial);
 							}else{
 								/* czerwone lampki */
 								DPRINT(" => invalid pin\n");
 								state = WAIT_FOR_FIRST_ID;
-								reader_signal(SIGNAL_ERR, portTXfd);
+								reader_signal(SIGNAL_ERR, osdpSerial);
 							}
 
 							pin_buffer_ptr = pin_buffer;
@@ -303,10 +300,10 @@ int main(int argc, char** argv){
 			}
 		}else{
 			fprintf(stderr, "Received bad packet\n");
-			tcflush(portTXfd, TCIOFLUSH);
-			close(portTXfd);
+			tcflush(osdpSerial, TCIOFLUSH);
+			close(osdpSerial);
 			
-			portTXfd = portsetup(TTY_PORT, &optionsTX, use_rs485);
+			osdpSerial = portsetup(TTY_PORT, &optionsTX, use_rs485);
 			printf("Port reopepend and initialized\n");
 		}
 	}

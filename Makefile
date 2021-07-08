@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -Wall -Ilibs -Iosdp -Iroger
 LDFLAGS = -s -Wl,-warn-common -lc -lsqlite3 -lgpiod
-CFLAGS += -DOSDP_DEBUG -DDEBUG
+CFLAGS += -DOSDP_VERBOSE_LEVEL=3 -DDEBUG
 
 all:
 	@echo "make what?"
