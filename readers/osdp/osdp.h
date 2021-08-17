@@ -13,8 +13,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "crctable.h"
-
 #define PACKETLEN 64
 
 /* OSDP command/reply codes */
@@ -49,13 +47,13 @@ struct osdp_response {
 
 void crclen_packet(struct osdp_packet *packet);
 void fill_packet(struct osdp_packet *packet, char address, char command, void* data, int datalen);
-int portsetup(char *devname, bool useRS485);
+int portsetup(const char *devname, bool useRS485);
 uint16_t fCrcBlk( uint8_t *pData, uint16_t nLength);
-void packet_dump(struct osdp_packet *packet);
+void packet_dump(struct osdp_packet *packet, int start_offset, int end_offset);
 bool send_packet(struct osdp_packet *packet, int fd);
 bool recv_packet(struct osdp_packet *packet, int fd);
 bool process_packet(struct osdp_packet *packet, struct osdp_response *response);
-void comset(struct osdp_packet *packet, char address, uint32_t baudrate);
+void comset(struct osdp_packet *packet, char oldaddress, char newaddress, uint32_t baudrate);
 void ledset(struct osdp_packet *packet, char address, char lednum, char color, bool blink, int blink_time);
 void beepset(struct osdp_packet *packet, char address, char on_time, char off_time, char count);
 #endif //_OSDP_H

@@ -1,58 +1,64 @@
 CC = gcc
-CFLAGS = -Wall -Ilibs -Iosdp -Iroger
-LDFLAGS = -s -Wl,-warn-common -lc -lsqlite3 -lgpiod
-CFLAGS += -DOSDP_VERBOSE_LEVEL=3 -DDEBUG
+CFLAGS = -Wall -Ilibs -I.
+LDFLAGS = -s -Wl,-warn-common -lpthread -lm -lc -lsqlite3 -lgpiod
+
+#CFLAGS += -DDEBUG -DGPIO_DEBUG -DEPSO_DEBUG -DOSDP_VERBOSE_LEVEL=3
 
 all:
 	@echo "make what?"
+	@echo "use \`make kd-idesco\` to build app for OSDP Idesco readers (RS485 on /dev/ttyS2)"
+	@echo "use \`make kd-roger\` to build app for Roger EPSO protocol readers (eg. PRT12EM)"
+	@echo "use \`make osdp-reader-test\` to build minimal OSDP lib reader test tool"
+	@echo "use \`make osdp-set-address\` to build OSDP reader set address tool"
 
-clean:
-	@rm build/* kd-roger kd-idesco kd-idesco-rs232 2>/dev/null || true
+%: build/%.elf
+	@echo "$< build successful"
 
-# KD app
-kd-roger: build/kd-roger.o build/roger.a build/md5.o
-	@echo Link... $@
-	$(CC) $(CFLAGS) -pthread -lm -o $@ $^ -lpthread $(LDFLAGS)
+%-lib: build/%.a
+	@echo "$< build successful"
 
-kd-idesco: build/kd-idesco.o build/osdp.a build/md5.o
-	@echo Link... $@
-	$(CC) $(CFLAGS) -pthread -lm -o $@ $^ -lpthread $(LDFLAGS)
+# KD apps
+build/kd-idesco.elf: build/door_controller/main.o build/door_controller/door_controller.o build/door_controller/user_db.o build/door_controller/eventSend.o \
+  build/libs/md5.o build/gpios/gpio-orangepizero.o \
+  build/readers/reader-idesco.o build/osdp.a
 
-kd-idesco-rs232: build/kd-idesco-rs232.o build/osdp.a build/md5.o
-	@echo Link... $@
-	$(CC) $(CFLAGS) -pthread -lm -o $@ $^ -lpthread $(LDFLAGS)
+build/kd-roger.elf: build/door_controller/main.o build/door_controller/door_controller.o build/door_controller/user_db.o build/door_controller/eventSend.o \
+  build/libs/md5.o build/gpios/gpio-orangepizero.o \
+  build/readers/reader-roger.o build/epso.a
 
-build/kd-roger.o: CFLAGS += -DROGER
-build/kd-roger.o: kontrola_dostepu.c roger_logic.c
-	$(CC) $(CFLAGS) -o $@ -c $<
+# tools
+build/osdp-reader-test.elf: build/tools/osdp-reader-test.o build/osdp.a
 
-build/kd-idesco.o: CFLAGS += -DIDESCO -DTTY_PORT="\"/dev/ttyS2\""
-build/kd-idesco.o: kontrola_dostepu.c idesco_logic.c
-	$(CC) $(CFLAGS) -o $@ -c $<
-
-build/kd-idesco-rs232.o: CFLAGS += -DIDESCO -DTTY_PORT="\"/dev/ttyS2\"" -D_USE_RS232
-build/kd-idesco-rs232.o: kontrola_dostepu.c
-	$(CC) $(CFLAGS) -o $@ -c $<
-
+build/osdp-set-address.elf: build/tools/osdp-set-address.o build/osdp.a
 
 # Roger EPSO lib
-build/roger.a: build/roger.o
-	ar r $@ $^
-	ranlib $@
-
-build/roger.o: roger/roger.c roger/roger.h
-	$(CC) $(CFLAGS) -o $@ -c $<
-
+build/epso.a: $(addprefix build/readers/epso/, epso.o)
 
 # OSDPv2 lib
-build/osdp.a: build/osdp.o build/crctable.o
+build/osdp.a: $(addprefix build/readers/osdp/, osdp.o crctable.o)
+
+
+# include dependencies
+include $(shell find build/ -name '*.d' 2>/dev/null)
+
+# general compile, linking, etc rules
+build/%.o: %.c build/%.d
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+build/%.a:
 	ar r $@ $^
 	ranlib $@
 
-# -DOSDP_DEBUG
-build/%.o: osdp/%.c osdp/%.h
-	$(CC) $(CFLAGS) -o $@ -c $<
+build/%.elf:
+	@echo Link... $@
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-# MD5 lib
-build/md5.o: libs/md5.c libs/md5.h
-	$(CC) $(CFLAGS) -o $@ -c $<
+# write dependencies rule
+.PRECIOUS: build/%.d
+build/%.d: %.c
+	mkdir -p $(@D)
+	@ echo "$@ $(@D)`$(CC) $(CFLAGS) -MM $<`" > $@
+
+.PHONY: clean
+clean:
+	rm -fr build

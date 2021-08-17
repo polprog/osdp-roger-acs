@@ -1,0 +1,14 @@
+[Unit]
+Description=/etc/rc.local
+ConditionPathExists=/usr/local/bin/AccessControl
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/AccessControl -d /var/lib/kd-database -c /etc/kd-config &
+TimeoutSec=0
+StandardOutput=tty
+RemainAfterExit=yes
+SysVStartPriority=99
+
+[Install]
+WantedBy=multi-user.target

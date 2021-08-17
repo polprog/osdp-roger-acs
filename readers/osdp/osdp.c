@@ -1,4 +1,6 @@
-#include "osdp.h"
+#include "readers/osdp/osdp.h"
+#include "readers/osdp/crctable.h"
+#include "error_reporting.h"
 
 /* OSDP_VERBOSE_LEVEL - level of lib verbosity:
  *  0 don't print any info (except errors on serial port opening)
@@ -20,12 +22,12 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 	if(crc != (uint16_t) ((packet->data[packet->len-1]<<8) | 
 			packet->data[packet->len-2])) {
 		#if OSDP_VERBOSE_LEVEL > 1
-		printf("CRC: expected=%04x, got %04x\n", crc, 
+		LOG_PRINT_WARN("CRC: expected=%04x, got %04x\n", crc, 
 			(packet->data[packet->len-1]<<8) | 
 			packet->data[packet->len-2]);
 		#endif
 		#if OSDP_VERBOSE_LEVEL > 0
-		fprintf(stderr, "CRC not OK\n");
+		LOG_PRINT_WARN("CRC not OK\n");
 		#endif
 		return false;
 	}
@@ -35,22 +37,18 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 	switch(packet->data[5]){
 		case osdp_ACK:
 			#if OSDP_VERBOSE_LEVEL > 2
-			printf("Acknowledge\n");
+			LOG_PRINT_NOTICE("Acknowledge\n");
 			#endif
 			break;
 		case osdp_NACK:
 			#if OSDP_VERBOSE_LEVEL > 2
-			printf("Not Acknowledge\n");
+			LOG_PRINT_NOTICE("Not Acknowledge\n");
 			#endif
 			break;
 		case osdp_RAW:
 			#if OSDP_VERBOSE_LEVEL > 2
-			printf("Card data (raw):\n");
-			for(int i = 6; i < packet->len-2; i++){
-				if((i-6) % 8 == 0) printf("\n%08x: ", i-6);
-				printf("%02x ", packet->data[i]);
-			}
-			printf("\n");
+			LOG_PRINT_NOTICE("Card data (raw):\n");
+			packet_dump(packet, 6, 2);
 			#endif
 			memcpy(response->payload, packet->data+6, packet->len-8);
 			response->payloadlen = packet->len-8;
@@ -59,18 +57,8 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 			uint16_t pinlen = packet->data[7];
 			
 			#if OSDP_VERBOSE_LEVEL > 2
-			printf("Keypad data (raw)\n");
-			for(int i = 6; i < packet->len-2; i++){
-				if((i-6) % 8 == 0) printf("\n%08x: ", i-6);
-				printf("%02x ", packet->data[i]);
-			}
-			printf("\n");
-			
-			printf("Keypad data len=%d : ", pinlen);
-			for(int i = 8; i <pinlen+8; i++){
-				printf("%d ", packet->data[i] & 0x0f);
-			}
-			printf("\n");
+			LOG_PRINT_NOTICE("Keypad data (raw)\n");
+			packet_dump(packet, 6, 2);
 			#endif
 			
 			memcpy(response->payload, packet->data+8, pinlen);
@@ -79,8 +67,8 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 		}
 		case osdp_COM:
 			#if OSDP_VERBOSE_LEVEL > 2
-			printf("COM data");
-			packet_dump(packet);
+			LOG_PRINT_NOTICE("COM data");
+			packet_dump(packet, 0, 0);
 			#endif
 			
 			memcpy(response->payload, packet->data+6, packet->len-8);
@@ -88,8 +76,10 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 			break;
 		default:
 			#if OSDP_VERBOSE_LEVEL > 1
-			printf("Unknown packet (0x%02x)\n", packet->data[5]);
-			packet_dump(packet);
+			LOG_PRINT_WARN("Unknown packet (0x%02x)\n", packet->data[5]);
+			#endif
+			#if OSDP_VERBOSE_LEVEL > 2
+			packet_dump(packet, 0, 0);
 			#endif
 			return false;
 	}
@@ -98,7 +88,9 @@ bool process_packet(struct osdp_packet *packet, struct osdp_response *response){
 
 bool send_packet(struct osdp_packet *packet, int fd){
 	if(write(fd, packet->data, packet->len) < 0){
-		perror("Failed to write packet");
+		#if OSDP_VERBOSE_LEVEL > 0
+		LOG_PRINT_WARN("Failed to write packet %s", strerror(errno));
+		#endif
 		return false;
 	}
 	return true;
@@ -110,10 +102,10 @@ bool recv_packet(struct osdp_packet *packet, int fd){
 		packet->len = len;
 		if(packet->data[0] != 0x53){
 			#if OSDP_VERBOSE_LEVEL > 0
-			fprintf(stderr, "Invalid packet");
+			LOG_PRINT_WARN("Invalid packet");
 			#endif
-			#if OSDP_VERBOSE_LEVEL > 1
-			packet_dump(packet);
+			#if OSDP_VERBOSE_LEVEL > 2
+			packet_dump(packet, 0, 0);
 			#endif
 			return false;
 		} else {
@@ -122,35 +114,48 @@ bool recv_packet(struct osdp_packet *packet, int fd){
 	}
 	#if OSDP_VERBOSE_LEVEL > 0
 	else if(len==0) {
-		fprintf(stderr, "read 0 bytes...\n");
+		LOG_PRINT_WARN("read 0 bytes...");
 	} else {
-		perror("read error");
+		LOG_PRINT_WARN("read error: %s", strerror(errno));
 	}
 	#endif
 	return false;
 }
 
-void packet_dump(struct osdp_packet *packet){
-	printf("Packet at %p, len=%d =0x%04x", packet, packet->len, packet->len);
-	for(int i = 0; i < packet->len; i++){
-		if(i % 8 == 0) printf("\n%08x: ", i);
-		printf("%02x ", packet->data[i]);
+void packet_dump(struct osdp_packet *packet, int start_offset, int end_offset) {
+	if (start_offset==0 && end_offset==0)
+		LOG_PRINT_NOTICE("Packet at %p, len=%d =0x%04x", packet, packet->len, packet->len);
+	if (start_offset >= packet->len - end_offset) {
+		LOG_PRINT_NOTICE("Data too short for dump\n");
+		return;
 	}
-	printf("\n");
+	
+	char buf[32];
+	int bufPos = 0;
+	for(int i = start_offset; i < packet->len - end_offset; i++){
+		if((i-start_offset) % 8 == 0) {
+			if (bufPos)
+				LOG_PRINT_NOTICE("%s", buf);
+			bufPos = snprintf(buf, 32, "%04x: ", i);
+		}
+		bufPos += snprintf(buf+bufPos, 32-bufPos, "%02x ", packet->data[i]);
+		if (bufPos >= 32) {
+			LOG_PRINT_WARN("Error in packet_dump");
+			return;
+		}
+	}
+	LOG_PRINT_NOTICE("%s", buf);
 }
 
 void crclen_packet(struct osdp_packet *packet){
 	uint16_t crc;
-	packet->len += 2;
-  	packet->data[2] = packet->len & 0xff;
+	packet->len += 2; // increase length (for set correct length value in packet), but last two bytes are trash ...
+	packet->data[2] = packet->len & 0xff;
 	packet->data[3] = packet->len >> 8;
-	//uwaga: wczesniej zwiekszamy len ale dwa ostatnie bajty to smieci! musimy przekazac
-	//len - 2 aby ich nie brac do sumy
-      	crc = fCrcBlk(packet->data, packet->len-2); 
+	crc = fCrcBlk(packet->data, packet->len-2); // so we don't calculate checksum for its
 	//printf("CRC: %04x\n", crc);
-	packet->data[packet->len-2] = crc & 0xff;
+	packet->data[packet->len-2] = crc & 0xff; // but store CRC on its
 	packet->data[packet->len-1] = crc >> 8;
-		
 }
 
 // table based CRC - this is the "direct table" mode -
@@ -163,13 +168,13 @@ uint16_t fCrcBlk( uint8_t *pData, uint16_t nLength) {
 	return nCrc;
 }
 
-void comset(struct osdp_packet *packet, char newaddress, uint32_t baudrate){
+void comset(struct osdp_packet *packet, char oldaddress, char newaddress, uint32_t baudrate){
 	char payload[5];
 	payload[0] = newaddress;
 	payload[1] = baudrate;
-	fill_packet(packet, 0x7f, osdp_COMSET, payload, 5);
+	fill_packet(packet, oldaddress, osdp_COMSET, payload, 5);
 	#if OSDP_VERBOSE_LEVEL > 1
-	packet_dump(packet);
+	packet_dump(packet, 0, 0);
 	#endif
 }
 
@@ -198,6 +203,7 @@ void ledset(struct osdp_packet *packet, char address, char lednum, char color, b
 		ledy[4] = 1;
 		ledy[5] = color;
 		ledy[7] = blink_time;
+		ledy[8] = blink_time>>8;
 		if(!blink){
 			ledy[6] = color;	
 		}
@@ -223,23 +229,22 @@ void fill_packet(struct osdp_packet *packet, char address, char command, void* d
 	packet->data[5] = command;
 	memcpy(&(packet->data[6]), data, datalen);
 	packet->len=6+datalen;
-	//TODO: add actual data
 	crclen_packet(packet);
 }
 
-int portsetup(char *devname, bool useRS485){
+int portsetup(const char *devname, bool useRS485){
 	struct termios options;
 	int status, portfd;
 	
 	portfd = open(devname, O_RDWR | O_NOCTTY | O_NDELAY); //open rw, not a controlling terminal, ignore DCD
 	if(portfd < 0){
-		fprintf(stderr, "Cannot open %s: %s\n", devname, strerror(errno));
+		LOG_PRINT_ERROR("Cannot open %s: %s", devname, strerror(errno));
 		return portfd;
 	}
 	
 	if(useRS485) {
 		#if OSDP_VERBOSE_LEVEL > 1
-		printf("set RS485 mode\n");
+		LOG_PRINT_INFO("set RS485 mode\n");
 		#endif
 		struct serial_rs485 rs485;
 		// Set the serial port in 485 mode
@@ -249,7 +254,7 @@ int portsetup(char *devname, bool useRS485){
 		rs485.delay_rts_before_send = 0;
 		status = ioctl(portfd, TIOCSRS485, &rs485);
 		if(status) {
-			perror("Failed to set up RS485 (ioctl error)");
+			LOG_PRINT_ERROR("Failed to set up RS485 (ioctl error): %s", strerror(errno));
 		}
 	}
 	

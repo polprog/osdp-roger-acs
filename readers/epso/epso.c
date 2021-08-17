@@ -5,9 +5,6 @@
  * 3-clause BSD license
  */
 
-// #define NO_USE_SYSLOG
-// #define DEBUG_OUT
-
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -17,9 +14,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include "roger.h"
+#include "readers/epso/epso.h"
 #include "error_reporting.h"
-#include "md5.h"
 
 #define TTY_READ_TIMEOUT_1 2000000
 #define TTY_READ_TIMEOUT_2   40000
@@ -27,6 +23,8 @@
 #define SOH 0x01
 #define STX 0x02
 #define ETX 0x03
+
+#define BUF_SIZE 128
 
 int init_tty(const char *tty_device, int tty_baud_flag) {
 	struct termios term;
@@ -79,17 +77,17 @@ int epso_write(int tty_fd, uint8_t addr, uint8_t func, uint8_t data) {
 	int ret;
 	
 	if (func == 0xFF) {
-		pos = snprintf((char*)buf, 15, "_S%02d%02X_X_", addr, func);
-		buf[pos-2] = data;
+		pos = snprintf((char*)buf, 15, "_S%02d%02X_%c_", addr, func, data);
 	} else {
 		pos = snprintf((char*)buf, 15, "_S%02d%02X_%d_", addr, func, data);
 	}
+	if (pos > 15) pos = 15; // this should never happen
 	buf[0] = SOH;
 	buf[6] = STX;
 	buf[pos-1] = ETX;
 	buf[pos] = epso_checksum(buf, pos);
 	
-	#ifdef DEBUG_OUT
+	#ifdef EPSO_DEBUG
 	uint8_t i;
 	for (i=0; i < pos+1; i++)
 		printf("  >>> %02d: 0x%02x (%c)\n", i, buf[i], buf[i]);
@@ -103,9 +101,8 @@ int epso_write(int tty_fd, uint8_t addr, uint8_t func, uint8_t data) {
 	return 0;
 }
 
-int epso_write_read(int tty_fd, uint8_t addr, uint8_t func, uint8_t data, char *buf_out, uint16_t buf_len) {
-	uint8_t buft[260];
-	uint8_t* buf = buft;
+int epso_write_read(int tty_fd, uint8_t addr, uint8_t func, uint8_t data, uint8_t *buf_out, uint16_t buf_len) {
+	uint8_t *buf = buf_out;
 	uint8_t check_sum, i, j;
 	int buf_pos, ret;
 	struct timeval timeout;
@@ -121,7 +118,7 @@ int epso_write_read(int tty_fd, uint8_t addr, uint8_t func, uint8_t data, char *
 	timeout.tv_usec = TTY_READ_TIMEOUT_1;
 	ret = select(tty_fd+1, &tty_fd_set, NULL, NULL, &timeout);
 	if (ret > 0) {
-		buf_pos = read(tty_fd, buf, 260);
+		buf_pos = read(tty_fd, buf, buf_len);
 		if (buf_pos < 0) {
 			LOG_PRINT_WARN("Error read data from device - read: %m");
 			return -21;
@@ -134,7 +131,7 @@ int epso_write_read(int tty_fd, uint8_t addr, uint8_t func, uint8_t data, char *
 			timeout.tv_usec = TTY_READ_TIMEOUT_2;
 			ret = select(tty_fd+1, &tty_fd_set, NULL, NULL, &timeout);
 			if (ret>0) {
-				buf_pos += read(tty_fd, buf+buf_pos, 260-buf_pos);
+				buf_pos += read(tty_fd, buf+buf_pos, buf_len-buf_pos);
 				if (buf_pos < 0) {
 					LOG_PRINT_WARN("Error read data from device - read (2): %m");
 					return -22;
@@ -161,7 +158,7 @@ int epso_write_read(int tty_fd, uint8_t addr, uint8_t func, uint8_t data, char *
 	}
 	check_sum = epso_checksum(buf, buf_pos-1);
 	
-	#ifdef DEBUG_IN
+	#ifdef EPSO_DEBUG
 	for (i=0; i < buf_pos; i++)
 		printf("  <<< %02d: 0x%02x (%c)\n", i, buf[i], buf[i]);
 	#endif
@@ -170,6 +167,9 @@ int epso_write_read(int tty_fd, uint8_t addr, uint8_t func, uint8_t data, char *
 		LOG_PRINT_WARN("Error read data (func=0x%02x) from device %d - check_sum (0x%x != 0x%x)", func, addr, buf[buf_pos-1], check_sum);
 		return -30;
 	}
+	
+	if (!buf_out)
+		return 0;
 	
 	j = -40;
 	for (i=7; i < buf_pos-2; i++) {
@@ -193,11 +193,11 @@ int epso_write_read(int tty_fd, uint8_t addr, uint8_t func, uint8_t data, char *
  * return 2 when read pin (put to @a pin)
  * return 3 when read card ID and pin
  */
-char readCardPin(int serial, char *buf, int bufSize, uint64_t* card, uint64_t* pin, char **cardStr, char **pinStr) {
+char readCardPin(int serial, uint8_t addr, char *buf, int bufSize, uint64_t* card, uint64_t* pin, char **cardStr, char **pinStr) {
 	char isNewData = 0;
 	char *bufp;
 	
-	int len = epso_write_read(serial, 0x00, 0xA5, 62, buf, bufSize);
+	int len = epso_write_read(serial, addr, 0xA5, 0x33, (uint8_t*)buf, bufSize); // data (range 1-255, send 0x33) is ignored in 0xA5 function
 	buf[len]='\0';
 	// printf("input status: %s\n", buf+len-2);
 	
@@ -228,42 +228,6 @@ char readCardPin(int serial, char *buf, int bufSize, uint64_t* card, uint64_t* p
 			
 			isNewData |= 0x02;
 		}
-	}
-	
-	return isNewData;
-}
-
-char readCardPin2(int serial, char* buf, int bufSize, uint64_t* cardNum, uint64_t* pinNum, char* cardStr, char* pinMd5Str) {
-	char *pinStr, isNewData;
-	int i;
-	
-	isNewData = readCardPin(serial, buf, bufSize, cardNum, pinNum, NULL, &pinStr);
-	
-	if ((isNewData & 0x01) && cardStr) { // card number in cardNum
-		char cardLen = 0;
-		if (*cardNum & 0x00ffffff00000000LL) {
-			cardLen = 7;
-		} else {
-			cardLen = 4;
-		}
-		uint8_t *cardNumPtr = (uint8_t*)(cardNum);
-		for (i=0; i<cardLen; ++i) {
-			sprintf(cardStr + i*2, "%02X", (unsigned int)cardNumPtr[i]);
-		}
-		cardStr[cardLen*2] = 0;
-	}
-	
-	if ((isNewData & 0x02) && pinMd5Str) { // pin in pinNum 
-		unsigned char digest[16];
-		MD5_CTX context;
-		MD5_Init(&context);
-		MD5_Update(&context, pinStr, strlen(pinStr));
-		MD5_Final(digest, &context);
-		
-		for(i = 0; i < 16; ++i) {
-			sprintf(pinMd5Str + i*2, "%02x", (unsigned int)digest[i]);
-		}
-		pinMd5Str[32] = 0;
 	}
 	
 	return isNewData;
