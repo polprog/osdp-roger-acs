@@ -23,6 +23,8 @@ enum {
 	EVENT_DOOR_EMERGENCY_ACTIVE,
 	EVENT_DOOR_EMERGENCY_INACTIVE,
 	EVENT_DOOR_OPEN_ALARM,
+
+	EVENT_REMOTE_CTRL,
 };
 
 static const char* const eventNames[] = {

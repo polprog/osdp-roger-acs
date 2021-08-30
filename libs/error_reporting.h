@@ -30,6 +30,7 @@
 
 
 #ifdef DEBUG
+	#include <stdio.h>
 	#define DPRINT(...) printf(__VA_ARGS__)
 #else
 	#define DPRINT(...) ;

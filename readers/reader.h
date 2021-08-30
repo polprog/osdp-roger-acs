@@ -29,6 +29,8 @@ enum {
  SIGNAL_ERR_COMM  = 0x23,
  SIGNAL_PIN       = 0x41,
  SIGNAL_PIN_QUIET = 0x42,
+ SIGNAL_BLOCKED   = 0x81,
+ SIGNAL_UNBLOCKED = 0x82,
 };
 
 void reader_signal(char signal, Reader* reader);

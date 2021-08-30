@@ -18,11 +18,11 @@ all:
 	@echo "$< build successful"
 
 # KD apps
-build/kd-idesco.elf: build/door_controller/main.o build/door_controller/door_controller.o build/door_controller/user_db.o build/door_controller/eventSend.o \
+build/kd-idesco.elf: build/door_controller/main.o build/door_controller/door_controller.o build/door_controller/user_db.o build/door_controller/eventSend.o build/door_controller/remoteControl.o \
   build/libs/md5.o build/gpios/gpio-orangepizero.o \
   build/readers/reader-idesco.o build/osdp.a
 
-build/kd-roger.elf: build/door_controller/main.o build/door_controller/door_controller.o build/door_controller/user_db.o build/door_controller/eventSend.o \
+build/kd-roger.elf: build/door_controller/main.o build/door_controller/door_controller.o build/door_controller/user_db.o build/door_controller/eventSend.o build/door_controller/remoteControl.o \
   build/libs/md5.o build/gpios/gpio-orangepizero.o \
   build/readers/reader-roger.o build/epso.a
 

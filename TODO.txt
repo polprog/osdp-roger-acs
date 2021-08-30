@@ -1,0 +1,4 @@
+* add support for time expression per user-zone mapping – see getAccessMask2() function in user_db.c
+* add 2 door interlock (airlock) via network support (send "block" / "unblock" to remote controller) – see airLockOnPartner() function in door_controller.c and main()
+* test multi-door / multi-reader configurations
+* add support for DESFire card with encrypted data

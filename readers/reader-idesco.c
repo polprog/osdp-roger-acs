@@ -190,6 +190,22 @@ void reader_signal(char signal, Reader* reader) {
 			ledset(&packet, reader->address, 1, AMBER, true, 12);
 			send_packet(&packet, reader->serial);
 			break;
+		case SIGNAL_BLOCKED:
+			ledset(&packet, reader->address, 2, AMBER, true, 0);
+			send_packet(&packet, reader->serial);
+			usleep(OSDP_SLEEP_TIME);
+			recv_packet(&packet, reader->serial);
+			ledset(&packet, reader->address, 1, AMBER, true, 0);
+			send_packet(&packet, reader->serial);
+			break;
+		case SIGNAL_UNBLOCKED:
+			ledset(&packet, reader->address, 2, BLACK, false, 0);
+			send_packet(&packet, reader->serial);
+			usleep(OSDP_SLEEP_TIME);
+			recv_packet(&packet, reader->serial);
+			ledset(&packet, reader->address, 1, BLACK, true, 0);
+			send_packet(&packet, reader->serial);
+			break;
 		default:
 			return;
 	}

@@ -156,32 +156,40 @@ void sendEvent(int eventType, const char* door, ...) {
 			break;
 		}
 		case EVENT_DOOR_IS_OPEN: {
-			LPRINT("DOOR OPEN %s\n", door);
+			LPRINT("DOOR IS OPEN %s\n", door);
 			break;
 		}
 		case EVENT_DOOR_IS_CLOSE: {
-			LPRINT("DOOR CLOSE %s\n", door);
+			LPRINT("DOOR IS CLOSE %s\n", door);
 			break;
 		}
 		case EVENT_DOOR_IS_UNLOCK: {
-			LPRINT("DOOR OPEN %s\n", door);
+			LPRINT("DOOR IS UNLOCK %s\n", door);
 			break;
 		}
 		case EVENT_DOOR_IS_LOCK: {
-			LPRINT("DOOR CLOSE %s\n", door);
+			LPRINT("DOOR IS LOCK %s\n", door);
 			break;
 		}
 		case EVENT_DOOR_EMERGENCY_ACTIVE: {
-			LPRINT("DOOR EMERGENCY OPEN ACTIVE %s\n", door);
+			LPRINT("DOOR EMERGENCY OPEN IS ACTIVE %s\n", door);
 			break;
 		}
 		case EVENT_DOOR_EMERGENCY_INACTIVE: {
-			LPRINT("DOOR EMERGENCY OPEN INACTIVE %s\n", door);
+			LPRINT("DOOR EMERGENCY OPEN IS INACTIVE %s\n", door);
 			break;
 		}
 		case EVENT_DOOR_OPEN_ALARM: {
 			uint32_t    mask = va_arg(vl, uint32_t);
 			LPRINT("DOOR OPEN ALARM FOR %s (mask=0x%x)\n", door, mask);
+			break;
+		}
+		case EVENT_REMOTE_CTRL: {
+			const char* type = va_arg(vl, const char*);
+			const char* action = va_arg(vl, const char*);
+			const char* arg = va_arg(vl, const char*);
+			LPRINT("REMOTE CONTROL FOR %s: %s %s %s\n", door, type, action, arg);
+			bufPos += snprintf(cmdBuf + bufPos, BUF_SIZE - bufPos, "&type=%s&action=%s&arg=%s", type, action, arg);
 			break;
 		}
 	}

@@ -10,14 +10,15 @@
 #include "gpios/gpio.h"
 #include "user_db.h"
 #include "eventSend.h"
+#include "remoteControl.h"
 
 Door    *doors;
 int      doorsCount;
 sqlite3 *database;
 
 void printHelp(char **argv){
-	fprintf(stderr, "Usage: %s -d <database> -n <doorname> -m <mode> -s <serial> [-a <reader_addres>] [-r] [-e <event_host>] [-l <log_host> -L <log_port>]\n", argv[0]);
-	fprintf(stderr, "Usage: %s -d <database> -c <config_file> [-e <event_host>] [-l <log_host> -L <log_port>]\n", argv[0]);
+	fprintf(stderr, "Usage: %s -d <database> -n <doorname> -m <mode> -s <serial> [-a <reader_addres>] [-r] [-e <event_host>] [-l <log_host> -L <log_port>] [-D <state_db> -p <listen_port>]\n", argv[0]);
+	fprintf(stderr, "Usage: %s -d <database> -c <config_file> [-e <event_host>] [-l <log_host> -L <log_port>] [-D <state_db> -p <listen_port>]\n", argv[0]);
 	fprintf(stderr, "where <database> is path to sqlite database\n");
 	fprintf(stderr, "<doorname> is name of door for this controller\n");
 	fprintf(stderr, "<mode> is:\n");
@@ -32,6 +33,8 @@ void printHelp(char **argv){
 	fprintf(stderr, "-r enable rs485 mode on <serial> device (transmitter control via RTS signal)\n");
 	fprintf(stderr, "<event_host> is address (IP or domain) to send HTTP event\n");
 	fprintf(stderr, "<log_host> and <log_port> is address (IP or domain) and port to send TCP access log info\n");
+	fprintf(stderr, "<state_db> is path to sqlite database for state storage\n");
+	fprintf(stderr, "<port> is UDP port for listen for remote control commands\n");
 }
 
 static struct option long_options [] = {
@@ -47,6 +50,9 @@ static struct option long_options [] = {
 	{"event-host",     required_argument, NULL, 'e'},
 	{"log-host",       required_argument, NULL, 'l'},
 	{"log-port",       required_argument, NULL, 'L'},
+
+	{"state-database-file",  required_argument, NULL, 'D'},
+	{"listen-port",    required_argument, NULL, 'p'},
 	{0, 0, 0, 0}
 };
 
@@ -73,39 +79,50 @@ int main(int argc, char **argv) {
 	uint8_t readerAddres = defaultAddress;
 	bool use_rs485 = false;
 	
+	int port = 0;
+	const char *stateDbPath = NULL;
+	
 	// arg parse
-	while((ret = getopt_long(argc, argv, "d:n:c:m:s:a:re:l:L:", long_options, 0)) != -1) {
+	while((ret = getopt_long(argc, argv, "d:D:p:n:c:m:s:a:re:l:L:", long_options, 0)) != -1) {
 		switch (ret) {
 			case 'd':
 				databasePath = optarg;
-			break;
-			
+				break;
+			case 'D':
+				stateDbPath = optarg;
+				break;
+
 			case 'c':
 				configFile = optarg;
+				break;
 			case 'n':
 				doorName = optarg;
-			break;
+				break;
 			case 'm':
 				accessMode = strtoll(optarg, 0, 0);
-			break;
+				break;
 			case 's':
 				serialDev = optarg;
+				break;
 			case 'a':
 				readerAddres = strtoll(optarg, 0, 0);
-			break;
+				break;
 			case 'r':
 				use_rs485 = true;
-			break;
-			
+				break;
+
+			case 'p':
+				port = strtoll(optarg, 0, 0);
+				break;
 			case 'e':
 				eventHost = optarg;
-			break;
+				break;
 			case 'l':
 				logHost = optarg;
-			break;
+				break;
 			case 'L':
 				logPort = optarg;
-			break;
+				break;
 		}
 	}
 	
@@ -162,6 +179,11 @@ int main(int argc, char **argv) {
 			door->maskOffset = strtoll(configParse(&b, " \t\n", configFile, lineCount) , 0, 0);
 			door->maskFull   = strtoll(configParse(&b, " \t\n", configFile, lineCount) , 0, 0);
 			
+			char *partner = configParse(&b, " \t\n", configFile, lineCount);
+			if (partner[0] && partner[0] != '-') {
+				door->airLockPartnerString = strdup(partner);
+			}
+			
 			door->lastInput  = DI_STATE_IS_DIFF | 0x0f;
 			
 			LOG_PRINT_INFO("read door %s from config with "
@@ -194,6 +216,13 @@ int main(int argc, char **argv) {
 		}
 		
 		fclose(config);
+		
+		for (int i=0; i<doorsCount; ++i) {
+			if (doors[i].airLockPartnerString) {
+				doors[i].airLockPartnerLocal = getDoorByName(doors, doorsCount, doors[i].airLockPartnerString);
+				// TODO: when NULL parse airLockPartnerString to fill airLockPartnerNet
+			}
+		}
 		
 		LOG_PRINT_INFO("Start %s with databasePath=%s configFile=%s eventHost=%s logHost=%s logPort=%s",
 			argv[0], databasePath, configFile, eventHost, logHost, logPort
@@ -233,8 +262,20 @@ int main(int argc, char **argv) {
 		exit(3);
 	}
 	
+	// init remote control
+	struct Controler rctrl;
+	if (port > 0 && port <= 65535 && stateDbPath) {
+		if (init_remote_control(port, stateDbPath, doors, doorsCount, &rctrl) < 0) {
+			LOG_PRINT_CRIT("Can't init remote controler\n");
+			return 1;
+		}
+	} else {
+		port = 0;
+	}
+	
 	// main loop
 	while(1) {
 		mainLoop(doors, doorsCount, database);
+		if(port) check_network(&rctrl);
 	}
 }

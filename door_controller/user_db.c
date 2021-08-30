@@ -14,7 +14,7 @@
 
 #define CHECK_BUFFER_OVERFLOW(size) if (size >= BUF_SIZE) { LOG_PRINT_ERROR("SQL query buffer overflow"); return 0; }
 
-int32_t getAccessMask2(const uint8_t* pin, int pinLen, const uint8_t* card, int cardLen, uint8_t mode, const char* doorname, sqlite3 *db) {
+uint32_t getAccessMask2(const uint8_t* pin, int pinLen, const uint8_t* card, int cardLen, uint8_t mode, const char* doorname, sqlite3 *db) {
 	char dataBuf[ BUF_SIZE ];
 	char pin_md5[MD5LEN];
 	char cardStr[MAX_CARD_LEN*2+1];
@@ -118,6 +118,7 @@ int32_t getAccessMask2(const uint8_t* pin, int pinLen, const uint8_t* card, int 
 		 *    unixtimestamp = seconds from 1970-01-01 00:00:00 UTC
 		 *  - replace this string by current values and calculate expression logic value
 		 *  - empty expression == all time access
+		 * maybe use "logic" branch of https://github.com/codeplea/tinyexpr
 		 */
 		char* door = (char*) sqlite3_column_text(stmt, 5);
 		char* percent = strstr(doorname, "%");
@@ -128,6 +129,7 @@ int32_t getAccessMask2(const uint8_t* pin, int pinLen, const uint8_t* card, int 
 		DPRINT("access for door=%s subdoor=%d \n", door, subdoor);
 		door_mask |= (1 << subdoor);
 	}
+	sqlite3_finalize(stmt);
 	
 	if (door_mask) {
 		sendEvent(EVENT_AUTH_OK, doorname, door_mask, userName, cardStr);
@@ -138,7 +140,7 @@ int32_t getAccessMask2(const uint8_t* pin, int pinLen, const uint8_t* card, int 
 	return door_mask;
 }
 
-int32_t checkKeyAccess2(const uint8_t* card1, int card1Len, const uint8_t* card2, int card2Len, sqlite3 *db) {
+uint32_t checkKeyAccess2(const uint8_t* card1, int card1Len, const uint8_t* card2, int card2Len, sqlite3 *db) {
 	char dataBuf[ BUF_SIZE ];
 	char card1Str[MAX_CARD_LEN*2+1];
 	char card2Str[MAX_CARD_LEN*2+1];
@@ -180,6 +182,7 @@ int32_t checkKeyAccess2(const uint8_t* card1, int card1Len, const uint8_t* card2
 		}
 		break;
 	}
+	sqlite3_finalize(stmt);
 	
 	if (door_mask) {
 		sendEvent(EVENT_AUTH_OK, door, door_mask, userName, card1Str);
