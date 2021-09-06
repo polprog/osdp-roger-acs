@@ -1,14 +1,17 @@
 #ifndef _OSDP_H
 #define _OSDP_H
-#include <termios.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include <sys/ioctl.h>
-#include <stdint.h>
-#include <errno.h>
+
+#include <stdio.h>   /* Standard input/output definitions */
+#include <string.h>  /* String function definitions */
+#include <stdlib.h>
+#include <unistd.h>  /* UNIX standard function definitions */
+#include <fcntl.h>   /* File control definitions */
+#include <errno.h>   /* Error number definitions */
+#include <termios.h> /* POSIX terminal control definitions */
 #include <linux/serial.h>
-#include "util.h"
-#include "crctable.h"
+#include <sys/ioctl.h>
+#include <stdbool.h>
+#include <stdint.h>
 
 #define PACKETLEN 64
 
@@ -33,24 +36,24 @@
 
 struct osdp_packet {
 	unsigned int len;
-	char data[PACKETLEN];
+	uint8_t data[PACKETLEN];
 };
 
 struct osdp_response {
 	char response;
 	char payloadlen;
-	char payload[PACKETLEN];
+	uint8_t payload[PACKETLEN];
 };
 
 void crclen_packet(struct osdp_packet *packet);
 void fill_packet(struct osdp_packet *packet, char address, char command, void* data, int datalen);
-bool portsetup(int portfd, struct termios *options, bool useRS485);
+int portsetup(const char *devname, bool useRS485);
 uint16_t fCrcBlk( uint8_t *pData, uint16_t nLength);
-void packet_dump(struct osdp_packet *packet);
+void packet_dump(struct osdp_packet *packet, int start_offset, int end_offset);
 bool send_packet(struct osdp_packet *packet, int fd);
 bool recv_packet(struct osdp_packet *packet, int fd);
 bool process_packet(struct osdp_packet *packet, struct osdp_response *response);
-void comset(struct osdp_packet *packet, char address, uint32_t baudrate);
+void comset(struct osdp_packet *packet, char oldaddress, char newaddress, uint32_t baudrate);
 void ledset(struct osdp_packet *packet, char address, char lednum, char color, bool blink, int blink_time);
 void beepset(struct osdp_packet *packet, char address, char on_time, char off_time, char count);
 #endif //_OSDP_H
