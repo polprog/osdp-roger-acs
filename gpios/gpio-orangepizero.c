@@ -9,6 +9,14 @@
 #define GPIO_DEVICE "gpiochip0"
 #endif
 
+#ifdef ACTIVE_ON_GND  // input activated via connect to GND
+#define GPIOD_ACTIVE true
+#define GPIOD_FLAGS  GPIOD_CTXLESS_FLAG_BIAS_PULL_UP
+#else                 // input activated via connect to 3.3V
+#define GPIOD_ACTIVE false
+#define GPIOD_FLAGS  GPIOD_CTXLESS_FLAG_BIAS_PULL_DOWN
+#endif
+
 enum {
 	DO_UNLOCK_DOOR_1 = 13, // PA13
 	DI_MANUAL_OPEN_1 = 14, // PA14
@@ -55,7 +63,11 @@ void get_input_state(uint8_t *values, int32_t mask) {
 	int inputsValues[INPUTS_DOORS * INPUTS_TYPES];
 	memset(inputsValues, 0x13, sizeof(int)*INPUTS_DOORS * INPUTS_TYPES);
 	int ret  __attribute__((unused));
-	ret = gpiod_ctxless_get_value_multiple(GPIO_DEVICE, inputs, inputsValues, INPUTS_DOORS * INPUTS_TYPES, false, "gpioget");
+	#ifdef NO_PULLUPDOWN
+	ret = gpiod_ctxless_get_value_multiple(GPIO_DEVICE, inputs, inputsValues, INPUTS_DOORS * INPUTS_TYPES, GPIOD_ACTIVE, "gpioget");
+	#else
+	ret = gpiod_ctxless_get_value_multiple_ext(GPIO_DEVICE, inputs, inputsValues, INPUTS_DOORS * INPUTS_TYPES, GPIOD_ACTIVE, "gpioget", GPIOD_FLAGS);
+	#endif
 	
 	#if GPIO_DEBUG
 	printf("input read (status=%d) values: ", ret);

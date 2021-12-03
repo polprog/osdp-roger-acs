@@ -1,0 +1,36 @@
+diff --git a/drivers/tty/serial/8250/8250_dw.c b/drivers/tty/serial/8250/8250_dw.c
+index 9c00d7504..bc8cd87ee 100644
+--- a/drivers/tty/serial/8250/8250_dw.c
++++ b/drivers/tty/serial/8250/8250_dw.c
+@@ -469,6 +469,10 @@ static int dw8250_probe(struct platform_device *pdev)
+ 	p->set_ldisc	= dw8250_set_ldisc;
+ 	p->set_termios	= dw8250_set_termios;
+ 
++	p->rs485_config = serial8250_em485_config;
++	up->rs485_start_tx = serial8250_em485_start_tx;
++	up->rs485_stop_tx = serial8250_em485_stop_tx;
++
+ 	p->membase = devm_ioremap(dev, regs->start, resource_size(regs));
+ 	if (!p->membase)
+ 		return -ENOMEM;
+diff --git a/drivers/tty/serial/8250/8250_port.c b/drivers/tty/serial/8250/8250_port.c
+index be779eb9e..c9f5b626e 100644
+--- a/drivers/tty/serial/8250/8250_port.c
++++ b/drivers/tty/serial/8250/8250_port.c
+@@ -1541,8 +1541,14 @@ static inline void __stop_tx(struct uart_8250_port *p)
+ 		 * shift register are empty. It is for device driver to enable
+ 		 * interrupt on TEMT.
+ 		 */
+-		if ((lsr & BOTH_EMPTY) != BOTH_EMPTY)
+-			return;
++		//if ((lsr & BOTH_EMPTY) != BOTH_EMPTY)
++		//	return;
++		// TODO: use if / while variant depending on the support / not support interrupt ...
++		// TODO: or provide different serial8250_stop_tx for chips without interrupt
++		while ((lsr & BOTH_EMPTY) != BOTH_EMPTY) {
++			lsr = serial_in(p, UART_LSR);
++			cpu_relax();
++		}
+ 
+ 		__stop_tx_rs485(p);
+ 	}
